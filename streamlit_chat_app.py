@@ -1,5 +1,6 @@
 import os
 import time
+import re  # ⬅ додали для очищення посилань
 
 import streamlit as st
 from openai import OpenAI
@@ -16,7 +17,6 @@ ASSISTANT_ID = "asst_fV4U4hV81cxyROLvOGyPXWku"
 
 
 # -------------------- Допоміжні функції -------------------- #
-
 
 def get_or_create_thread_id() -> str:
     """Зберігаємо thread_id в сесії, щоб контекст діалогу не губився."""
@@ -37,8 +37,7 @@ def add_message_to_thread(thread_id: str, user_text: str) -> None:
 
 def run_assistant(thread_id: str) -> None:
     """Запускаємо Assistant і чекаємо завершення run’а."""
-    # ВСЕ, більше ніяких tools/tool_resources тут не вказуємо.
-    # Асистент уже знає, що в нього увімкнено File Search + підключений Vector Store.
+    # Асистент вже знає, що в нього увімкнено File Search і підключений Vector Store.
     run = client.beta.threads.runs.create(
         thread_id=thread_id,
         assistant_id=ASSISTANT_ID,
@@ -76,6 +75,19 @@ def get_last_assistant_message(thread_id: str) -> str:
         if item.type == "text":
             text_parts.append(item.text.value)
     return "\n".join(text_parts).strip()
+
+
+def clean_citations(text: str) -> str:
+    """
+    Прибираємо технічні посилання виду:
+    
+    щоб відповідь виглядала професійно.
+    """
+    # видаляємо конструкції між 【 і 】 з символом † всередині
+    text = re.sub(r"【.*?†.*?】", "", text)
+    # прибираємо зайві пробіли, що могли з’явитися
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip()
 
 
 # -------------------- UI Streamlit -------------------- #
@@ -130,6 +142,7 @@ if user_input:
             with st.spinner("Опрацьовую запитання за стандартами…"):
                 run_assistant(thread_id)
                 answer = get_last_assistant_message(thread_id)
+                answer = clean_citations(answer)  # ⬅ очищаємо зайві посилання
                 st.markdown(answer)
 
         # Зберігаємо відповідь в історії
