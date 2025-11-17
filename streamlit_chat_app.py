@@ -4,7 +4,7 @@ from openai import OpenAI
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-ASSISTANT_ID = "asst_XXXXXXXXXXXXXXXXXXXXXXXX"  # заміни на свій ID асистента
+ASSISTANT_ID = "asst_fV4U4hV81cxyROLvOGyPXWku"  # заміни на свій ID асистента
 
 st.set_page_config(page_title="Експерт з сертифікації послуг охорони")
 
