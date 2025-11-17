@@ -14,9 +14,6 @@ client = OpenAI()
 # 3. ID твого Assistant з файлами ДСТУ/EN
 ASSISTANT_ID = "asst_fV4U4hV81cxyROLvOGyPXWku"
 
-# 4. ID Vector Store, до якого прив’язані PDF стандартів
-VECTOR_STORE_ID = "vs_691af337ad608191b85349b784204c7f"
-
 
 # -------------------- Допоміжні функції -------------------- #
 
@@ -39,21 +36,12 @@ def add_message_to_thread(thread_id: str, user_text: str) -> None:
 
 
 def run_assistant(thread_id: str) -> None:
-    """
-    Запускаємо Assistant і чекаємо завершення run’а.
-    Тут ВАЖЛИВО: явно вмикаємо file_search і підключаємо vector_store.
-    """
+    """Запускаємо Assistant і чекаємо завершення run’а."""
+    # ВСЕ, більше ніяких tools/tool_resources тут не вказуємо.
+    # Асистент уже знає, що в нього увімкнено File Search + підключений Vector Store.
     run = client.beta.threads.runs.create(
         thread_id=thread_id,
         assistant_id=ASSISTANT_ID,
-        # Явно вказуємо, що використовуємо інструмент file_search
-        tools=[{"type": "file_search"}],
-        # І підключаємо потрібне vector store з твоїми стандартами
-        tool_resources={
-            "file_search": {
-                "vector_store_ids": [VECTOR_STORE_ID],
-            }
-        },
     )
 
     while True:
@@ -108,7 +96,7 @@ st.write(
 if "chat_messages" not in st.session_state:
     st.session_state.chat_messages = []  # список словників {role, content}
 
-# (необов’язково) Кнопка скинути діалог
+# Кнопка скинути діалог (очищає контекст і thread)
 with st.sidebar:
     if st.button("🔁 Почати нову консультацію"):
         st.session_state.chat_messages = []
@@ -124,7 +112,7 @@ for msg in st.session_state.chat_messages:
         with st.chat_message("assistant"):
             st.markdown(msg["content"])
 
-# Поле вводу користувача (новий формат chat_input)
+# Поле вводу користувача
 user_input = st.chat_input("Напиши запитання…")
 
 if user_input:
