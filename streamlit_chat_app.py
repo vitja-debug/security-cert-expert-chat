@@ -14,10 +14,14 @@ client = OpenAI()
 # 3. ID твого Assistant з файлами ДСТУ/EN
 ASSISTANT_ID = "asst_fV4U4hV81cxyROLvOGyPXWku"
 
+# 4. ID Vector Store, до якого прив’язані PDF стандартів
+VECTOR_STORE_ID = "vs_691af337ad608191b85349b784204c7f"
+
 
 # -------------------- Допоміжні функції -------------------- #
 
-def get_or_create_thread_id():
+
+def get_or_create_thread_id() -> str:
     """Зберігаємо thread_id в сесії, щоб контекст діалогу не губився."""
     if "thread_id" not in st.session_state:
         thread = client.beta.threads.create()
@@ -25,7 +29,7 @@ def get_or_create_thread_id():
     return st.session_state.thread_id
 
 
-def add_message_to_thread(thread_id: str, user_text: str):
+def add_message_to_thread(thread_id: str, user_text: str) -> None:
     """Додаємо повідомлення користувача в thread Assistant’а."""
     client.beta.threads.messages.create(
         thread_id=thread_id,
@@ -34,11 +38,22 @@ def add_message_to_thread(thread_id: str, user_text: str):
     )
 
 
-def run_assistant(thread_id: str):
-    """Запускаємо Assistant і чекаємо завершення run’а."""
+def run_assistant(thread_id: str) -> None:
+    """
+    Запускаємо Assistant і чекаємо завершення run’а.
+    Тут ВАЖЛИВО: явно вмикаємо file_search і підключаємо vector_store.
+    """
     run = client.beta.threads.runs.create(
         thread_id=thread_id,
         assistant_id=ASSISTANT_ID,
+        # Явно вказуємо, що використовуємо інструмент file_search
+        tools=[{"type": "file_search"}],
+        # І підключаємо потрібне vector store з твоїми стандартами
+        tool_resources={
+            "file_search": {
+                "vector_store_ids": [VECTOR_STORE_ID],
+            }
+        },
     )
 
     while True:
@@ -77,18 +92,28 @@ def get_last_assistant_message(thread_id: str) -> str:
 
 # -------------------- UI Streamlit -------------------- #
 
-st.set_page_config(page_title="Експерт з сертифікації послуг охорони", layout="wide")
+st.set_page_config(
+    page_title="Експерт з сертифікації послуг охорони",
+    layout="wide",
+)
 
 st.title("Експерт з сертифікації послуг охорони (ДСТУ)")
 st.write(
-    "Постав запитання щодо ДСТУ 4030, ДСТУ CLC_TS 50131-7, ДСТУ EN 16763 "
-    "та пов’язаних вимог до послуг охорони. Я використовую завантажені стандарти в Assistant’і OpenAI."
+    "Постав запитання щодо ДСТУ 4030, ДСТУ CLC/TS 50131-7, ДСТУ EN 16763 "
+    "та пов’язаних вимог до послуг охорони. "
+    "Відповіді будуються на завантажених стандартах в Assistant’і OpenAI."
 )
 
 # Ініціалізуємо сховище повідомлень у сесії
 if "chat_messages" not in st.session_state:
     st.session_state.chat_messages = []  # список словників {role, content}
 
+# (необов’язково) Кнопка скинути діалог
+with st.sidebar:
+    if st.button("🔁 Почати нову консультацію"):
+        st.session_state.chat_messages = []
+        st.session_state.pop("thread_id", None)
+        st.success("Контекст очищено. Можеш ставити нові запитання.")
 
 # Відображення історії діалогу
 for msg in st.session_state.chat_messages:
@@ -113,6 +138,7 @@ if user_input:
     try:
         thread_id = get_or_create_thread_id()
         add_message_to_thread(thread_id, user_input)
+
         with st.chat_message("assistant"):
             with st.spinner("Опрацьовую запитання за стандартами…"):
                 run_assistant(thread_id)
@@ -127,7 +153,7 @@ if user_input:
     except Exception as e:
         error_text = (
             "Виникла помилка під час звернення до OpenAI API. "
-            "Спробуй ще раз пізніше або перевір налаштування ключа/Assistant’а.\n\n"
+            "Спробуй ще раз пізніше або перевір налаштування ключа / Assistant’а.\n\n"
             f"Деталі: `{e}`"
         )
         with st.chat_message("assistant"):
