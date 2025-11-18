@@ -13,7 +13,7 @@ if "OPENAI_API_KEY" in st.secrets:
 client = OpenAI()
 
 # 3. ID твого Assistant з файлами ДСТУ/EN
-ASSISTANT_ID = "asst_ZvlwnaokI38aNM9f4Ufs8ca"
+ASSISTANT_ID = "asst_ZvWnvao1k3BaN9Mf4UfsKBca"
 
 
 # -------------------- Допоміжні функції -------------------- #
