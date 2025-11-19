@@ -13,7 +13,7 @@ if "OPENAI_API_KEY" in st.secrets:
 client = OpenAI()
 
 # 3. ID твого Assistant з файлами ДСТУ/EN
-ASSISTANT_ID = "asst_ZvWnvao1k3BaN9Mf4UfsKBca"  # лишаємо той, що ти вказав
+ASSISTANT_ID = "asst_ZvWnvao1k3BaN9Mf4UfsKBca"
 
 
 # -------------------- Допоміжні функції -------------------- #
@@ -47,7 +47,7 @@ def run_assistant(thread_id: str) -> None:
     run = client.beta.threads.runs.create(
         thread_id=thread_id,
         assistant_id=ASSISTANT_ID,
-        tool_choice={"type": "file_search"},  # ⬅ обов'язковий пошук по файлах
+        tool_choice={"type": "file_search"},
     )
 
     while True:
@@ -60,7 +60,23 @@ def run_assistant(thread_id: str) -> None:
             return
 
         if run_status.status in ("failed", "cancelled", "expired"):
-            raise RuntimeError(f"Run ended with status: {run_status.status}")
+            # Пробуємо зчитати деталі помилки від OpenAI
+            err = getattr(run_status, "last_error", None)
+            if err is not None:
+                # Лог для розробника (в логи бекенду / консоль)
+                print(
+                    f"[OpenAI RUN ERROR] status={run_status.status}, "
+                    f"code={getattr(err, 'code', None)}, "
+                    f"message={getattr(err, 'message', None)}"
+                )
+                raise RuntimeError(
+                    f"Run ended with status: {run_status.status}, "
+                    f"code={getattr(err, 'code', None)}, "
+                    f"message={getattr(err, 'message', None)}"
+                )
+            else:
+                print(f"[OpenAI RUN ERROR] status={run_status.status}, no last_error")
+                raise RuntimeError(f"Run ended with status: {run_status.status}")
 
         time.sleep(1)
 
@@ -148,7 +164,7 @@ if user_input:
             with st.spinner("Опрацьовую запитання за стандартами…"):
                 run_assistant(thread_id)
                 answer = get_last_assistant_message(thread_id)
-                answer = clean_citations(answer)  # очищаємо зайві посилання
+                answer = clean_citations(answer)
                 st.markdown(answer)
 
         # Зберігаємо відповідь в історії
@@ -157,13 +173,18 @@ if user_input:
         )
 
     except Exception as e:
-        error_text = (
-            "Виникла помилка під час звернення до OpenAI API. "
-            "Спробуй ще раз пізніше або перевір налаштування ключа / Assistant’а.\n\n"
-            f"Деталі: `{e}`"
+        # Логуємо технічні деталі тільки в консоль / бекенд, щоб ти міг їх бачити
+        print(f"[APP ERROR] {repr(e)}")
+
+        # А користувачу показуємо нейтральне повідомлення без деталей
+        user_friendly_error = (
+            "Сталася технічна помилка під час обробки запиту. "
+            "Спробуй, будь ласка, ще раз трохи пізніше."
         )
+
         with st.chat_message("assistant"):
-            st.error(error_text)
+            st.error(user_friendly_error)
+
         st.session_state.chat_messages.append(
-            {"role": "assistant", "content": error_text}
+            {"role": "assistant", "content": user_friendly_error}
         )
