@@ -1,6 +1,6 @@
 import os
 import time
-import re  # ⬅ додали для очищення посилань
+import re  # для очищення технічних посилань
 
 import streamlit as st
 from openai import OpenAI
@@ -13,7 +13,7 @@ if "OPENAI_API_KEY" in st.secrets:
 client = OpenAI()
 
 # 3. ID твого Assistant з файлами ДСТУ/EN
-ASSISTANT_ID = "asst_ZvWnvao1k3BaN9Mf4UfsKBca"
+ASSISTANT_ID = "asst_ZvWnvao1k3BaN9Mf4UfsKBca"  # лишаємо той, що ти вказав
 
 
 # -------------------- Допоміжні функції -------------------- #
@@ -36,11 +36,18 @@ def add_message_to_thread(thread_id: str, user_text: str) -> None:
 
 
 def run_assistant(thread_id: str) -> None:
-    """Запускаємо Assistant і чекаємо завершення run’а."""
-    # Асистент вже знає, що в нього увімкнено File Search і підключений Vector Store.
+    """
+    Запускаємо Assistant і чекаємо завершення run’а.
+
+    ВАЖЛИВО:
+    Примусово вимагаємо використання інструмента file_search,
+    щоб відповіді ґрунтувалися на документах (vector store),
+    а не на загальних знаннях моделі.
+    """
     run = client.beta.threads.runs.create(
         thread_id=thread_id,
         assistant_id=ASSISTANT_ID,
+        tool_choice={"type": "file_search"},  # ⬅ обов'язковий пошук по файлах
     )
 
     while True:
@@ -79,8 +86,7 @@ def get_last_assistant_message(thread_id: str) -> str:
 
 def clean_citations(text: str) -> str:
     """
-    Прибираємо технічні посилання виду:
-    
+    Прибираємо технічні посилання виду 【...†source】,
     щоб відповідь виглядала професійно.
     """
     # видаляємо конструкції між 【 і 】 з символом † всередині
@@ -142,7 +148,7 @@ if user_input:
             with st.spinner("Опрацьовую запитання за стандартами…"):
                 run_assistant(thread_id)
                 answer = get_last_assistant_message(thread_id)
-                answer = clean_citations(answer)  # ⬅ очищаємо зайві посилання
+                answer = clean_citations(answer)  # очищаємо зайві посилання
                 st.markdown(answer)
 
         # Зберігаємо відповідь в історії
