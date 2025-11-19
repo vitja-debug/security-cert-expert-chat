@@ -1,7 +1,6 @@
 import os
 import time
 import re
-import traceback
 
 import streamlit as st
 from openai import OpenAI
@@ -22,60 +21,95 @@ ASSISTANT_ID = "asst_ZvWnvao1k3BaN9Mf4UfsKBca"
 # ===========================
 
 def get_or_create_thread_id() -> str:
+    """Створює або повертає thread_id."""
     if "thread_id" not in st.session_state:
         thread = client.beta.threads.create()
         st.session_state.thread_id = thread.id
+        print(f"[THREAD] Створено новий thread: {thread.id}")
     return st.session_state.thread_id
 
 
 def add_message_to_thread(thread_id: str, user_text: str) -> None:
+    """Додає повідомлення користувача в Thread."""
     client.beta.threads.messages.create(
         thread_id=thread_id,
         role="user",
-        content=user_text
+        content=user_text,
     )
+    print(f"[THREAD] Додано повідомлення користувача в Thread {thread_id}")
+
+
+def debug_run_steps(thread_id: str, run_id: str) -> None:
+    """Логує кроки Run'а для діагностики."""
+    try:
+        steps = client.beta.threads.runs.steps.list(
+            thread_id=thread_id,
+            run_id=run_id,
+        )
+        print("\n[RUN STEPS DEBUG] =======================")
+        print(f"thread_id={thread_id}, run_id={run_id}")
+        for step in steps.data:
+            print(f"- step_id={step.id}, type={step.type}, status={step.status}")
+            # Якщо в step є помилки / деталі tool_call – вони теж тут
+            print(step)
+        print("[RUN STEPS DEBUG END] ====================\n")
+    except Exception as e:
+        print(f"[RUN STEPS DEBUG ERROR] {repr(e)}")
 
 
 def run_assistant(thread_id: str) -> None:
-    """Запускає Assistant і чекає завершення Run."""
+    """Запускає Assistant і чекає завершення Run, з детальним логом."""
 
     run = client.beta.threads.runs.create(
         thread_id=thread_id,
         assistant_id=ASSISTANT_ID,
-        # ❗ Прибрано tool_choice — він часто ламає Run
+        # Ми просимо обов'язково використати file_search
+        tool_choice={"type": "file_search"},
     )
+
+    print(f"[RUN] Створено run: {run.id}, статус: {run.status}")
 
     while True:
         status = client.beta.threads.runs.retrieve(
             thread_id=thread_id,
-            run_id=run.id
+            run_id=run.id,
         )
 
         if status.status == "completed":
+            print(f"[RUN] Завершено успішно: {run.id}")
             return
 
         if status.status in ("failed", "cancelled", "expired"):
+            # Лог всього run-об’єкта
+            print("\n[OPENAI RUN ERROR] Повний об'єкт run:")
+            print(status)
+
+            # last_error на рівні Run
             err_obj = getattr(status, "last_error", None)
-
-            print("\n====== OPENAI RUN ERROR ======")
-            print(f"Status: {status.status}")
-            print(f"Run ID: {run.id}")
-            print(f"Thread ID: {thread_id}")
-
             if err_obj:
-                print(f"Code: {err_obj.code}")
-                print(f"Message: {err_obj.message}")
+                print(
+                    "\n[OPENAI RUN ERROR] last_error:",
+                    f"\nStatus: {status.status}",
+                    f"\nCode: {getattr(err_obj, 'code', None)}",
+                    f"\nMessage: {getattr(err_obj, 'message', None)}\n",
+                )
             else:
-                print("last_error = None")
+                print(
+                    f"[OPENAI RUN ERROR] Status={status.status}, last_error=None "
+                    "(шукаємо помилку в кроках run'а)"
+                )
 
-            print("=================================\n")
+            # окремо пробуємо подивитись кроки run'а
+            debug_run_steps(thread_id, run.id)
 
+            # Піднімаємо службову помилку вгору
             raise RuntimeError("run_failed")
 
         time.sleep(1)
 
 
 def get_last_assistant_message(thread_id: str) -> str:
+    """Читає останнє повідомлення Assistant’а."""
     msgs = client.beta.threads.messages.list(
         thread_id=thread_id,
         order="desc",
@@ -96,16 +130,20 @@ def get_last_assistant_message(thread_id: str) -> str:
 
 
 def clean_citations(text: str) -> str:
+    """Прибирає службові посилання на джерела."""
     text = re.sub(r"【.*?†.*?】", "", text)
     text = re.sub(r"\s{2,}", " ", text)
     return text.strip()
 
 
 # ===========================
-#   STREAMLIT UI
+#   STREAMLIT ІНТЕРФЕЙС
 # ===========================
 
-st.set_page_config(page_title="Експерт з сертифікації послуг охорони", layout="wide")
+st.set_page_config(
+    page_title="Експерт з сертифікації послуг охорони",
+    layout="wide",
+)
 
 st.title("Експерт з сертифікації послуг охорони (ДСТУ)")
 st.write(
@@ -117,24 +155,28 @@ if "chat_messages" not in st.session_state:
     st.session_state.chat_messages = []
 
 
+# --- КНОПКА НОВОЇ КОНСУЛЬТАЦІЇ ---
 with st.sidebar:
     if st.button("🔁 Почати нову консультацію"):
         st.session_state.chat_messages = []
         st.session_state.pop("thread_id", None)
-        st.success("Контекст очищено.")
+        st.success("Контекст очищено. Можеш ставити нові запитання.")
 
 
+# --- ВІДОБРАЖЕННЯ ІСТОРІЇ ---
 for msg in st.session_state.chat_messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 
+# --- ВВІД КОРИСТУВАЧА ---
 user_input = st.chat_input("Напиши запитання…")
 
 if user_input:
-
-    st.session_state.chat_messages.append({"role": "user", "content": user_input})
-
+    # показуємо в UI
+    st.session_state.chat_messages.append(
+        {"role": "user", "content": user_input}
+    )
     with st.chat_message("user"):
         st.markdown(user_input)
 
@@ -154,11 +196,10 @@ if user_input:
         )
 
     except Exception as e:
-        # 🔥 ПОВНИЙ ТРЕЙСБЕК ДЛЯ РОЗРОБНИКА
-        print("\n====== APP CRASH ======")
-        print(traceback.format_exc())
-        print("========================\n")
+        # Детальний лог тільки в консолі
+        print(f"[APP ERROR] {repr(e)}")
 
+        # Користувач бачить лише нейтральне повідомлення
         user_msg = (
             "Сталася технічна помилка під час обробки запиту. "
             "Спробуй, будь ласка, ще раз трохи пізніше."
