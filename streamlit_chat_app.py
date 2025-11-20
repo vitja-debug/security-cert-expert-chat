@@ -50,24 +50,36 @@ def debug_run_steps(thread_id: str, run_id: str) -> None:
         print(f"thread_id={thread_id}, run_id={run_id}")
         for step in steps.data:
             print(f"- step_id={step.id}, type={step.type}, status={step.status}")
-            # Якщо в step є помилки / деталі tool_call – вони теж тут
             print(step)
         print("[RUN STEPS DEBUG END] ====================\n")
     except Exception as e:
         print(f"[RUN STEPS DEBUG ERROR] {repr(e)}")
 
 
-def run_assistant(thread_id: str) -> None:
-    """Запускає Assistant і чекає завершення Run, з детальним логом."""
+def run_assistant(thread_id: str, force_file_search: bool = False) -> None:
+    """
+    Запускає Assistant і чекає завершення Run.
 
-    run = client.beta.threads.runs.create(
-        thread_id=thread_id,
-        assistant_id=ASSISTANT_ID,
-        # Ми просимо обов'язково використати file_search
-        tool_choice={"type": "file_search"},
+    Якщо force_file_search = True → явно дозволяємо асистенту використати file_search
+    (для режиму /точно). В інших випадках не задаємо tool_choice, щоб працював
+    стандартний "auto"-режим згідно з System Prompt.
+    """
+
+    run_kwargs = {
+        "thread_id": thread_id,
+        "assistant_id": ASSISTANT_ID,
+    }
+
+    if force_file_search:
+        # Увімкнути можливість виклику file_search в цьому run'і (режим /точно)
+        run_kwargs["tool_choice"] = {"type": "file_search"}
+
+    run = client.beta.threads.runs.create(**run_kwargs)
+
+    print(
+        f"[RUN] Створено run: {run.id}, статус: {run.status}, "
+        f"force_file_search={force_file_search}"
     )
-
-    print(f"[RUN] Створено run: {run.id}, статус: {run.status}")
 
     while True:
         status = client.beta.threads.runs.retrieve(
@@ -80,11 +92,9 @@ def run_assistant(thread_id: str) -> None:
             return
 
         if status.status in ("failed", "cancelled", "expired"):
-            # Лог всього run-об’єкта
             print("\n[OPENAI RUN ERROR] Повний об'єкт run:")
             print(status)
 
-            # last_error на рівні Run
             err_obj = getattr(status, "last_error", None)
             if err_obj:
                 print(
@@ -99,10 +109,8 @@ def run_assistant(thread_id: str) -> None:
                     "(шукаємо помилку в кроках run'а)"
                 )
 
-            # окремо пробуємо подивитись кроки run'а
             debug_run_steps(thread_id, run.id)
 
-            # Піднімаємо службову помилку вгору
             raise RuntimeError("run_failed")
 
         time.sleep(1)
@@ -173,7 +181,7 @@ for msg in st.session_state.chat_messages:
 user_input = st.chat_input("Напиши запитання…")
 
 if user_input:
-    # показуємо в UI
+    # показуємо оригінальний текст у UI (з /точно, якщо було)
     st.session_state.chat_messages.append(
         {"role": "user", "content": user_input}
     )
@@ -182,11 +190,28 @@ if user_input:
 
     try:
         thread_id = get_or_create_thread_id()
-        add_message_to_thread(thread_id, user_input)
+
+        raw_input = user_input.strip()
+        # Перевірка режиму /точно
+        force_file_search = False
+
+        # Підтримуємо і "/точно", і "/точно " на початку
+        if raw_input.lower().startswith("/точно"):
+            force_file_search = True
+            # Видаляємо префікс "/точно" тільки з тексту, який піде в Assistant
+            query = raw_input[len("/точно"):].strip()
+            if not query:
+                # Якщо після /точно нічого не ввели – все одно відправимо,
+                # але асистент може відповісти, що інформація відсутня / запит неясний.
+                query = raw_input
+        else:
+            query = raw_input
+
+        add_message_to_thread(thread_id, query)
 
         with st.chat_message("assistant"):
             with st.spinner("Опрацьовую запитання…"):
-                run_assistant(thread_id)
+                run_assistant(thread_id, force_file_search=force_file_search)
                 response = get_last_assistant_message(thread_id)
                 response = clean_citations(response)
                 st.markdown(response)
@@ -196,10 +221,8 @@ if user_input:
         )
 
     except Exception as e:
-        # Детальний лог тільки в консолі
         print(f"[APP ERROR] {repr(e)}")
 
-        # Користувач бачить лише нейтральне повідомлення
         user_msg = (
             "Сталася технічна помилка під час обробки запиту. "
             "Спробуй, будь ласка, ще раз трохи пізніше."
